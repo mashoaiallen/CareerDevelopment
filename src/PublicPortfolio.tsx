@@ -35,7 +35,7 @@ const projects = [
 function Arrow() { return <span aria-hidden="true">↗</span> }
 
 export function PublicEntry() {
-  return <PublicLayout><PublicHome /></PublicLayout>
+  return <PublicLayout><PublicOverview /></PublicLayout>
 }
 
 export function PublicLayout({ children }: { children?: ReactNode }) {
