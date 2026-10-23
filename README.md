@@ -1,6 +1,6 @@
 # Allen — Electrical Engineering portfolio
 
-A React and TypeScript portfolio for Allen, a third-year Electrical Engineering student at Wits in 2026. Visitors can browse the portfolio without signing in. Only the administrator account `mashoaiallen@gmail.com`, signed in with Google, can edit portfolio records or upload and remove evidence.
+A React and TypeScript portfolio for Allen, a third-year Electrical Engineering student at Wits in 2026. Visitors can browse the portfolio without signing in. Only the administrator account `mashoaiallen@gmail.com`, signed in with email and password, can edit portfolio records or upload and remove evidence.
 
 Portfolio records are stored in Supabase Postgres. A database trigger publishes a read-only projection for visitors and removes private evidence metadata from that projection. Private evidence files stay in the private `portfolio-evidence` bucket. Files explicitly marked public at upload go to `portfolio-public-evidence` and can be downloaded by visitors.
 
@@ -11,7 +11,7 @@ Starter content remains conservative: tasks begin as **Not Started**, project re
 1. In Supabase SQL Editor, run the migrations in order:
    - [`supabase/migrations/20261023000000_create_workspaces_and_evidence.sql`](supabase/migrations/20261023000000_create_workspaces_and_evidence.sql)
    - [`supabase/migrations/20261023010000_public_portfolio_admin_access.sql`](supabase/migrations/20261023010000_public_portfolio_admin_access.sql)
-2. Enable Google as an Auth provider and configure its OAuth client credentials. The administrator must sign in with the Google account whose email is `mashoaiallen@gmail.com`.
+2. Enable email/password sign-in in Supabase Auth. The administrator must use the existing Auth account with email `mashoaiallen@gmail.com`.
 3. In Supabase Auth URL Configuration, set the production site URL and allow the production Vercel URL plus local development URL with the `/home` path as redirect destinations.
 4. Fill in the root `.env` file:
 
@@ -21,9 +21,9 @@ Starter content remains conservative: tasks begin as **Not Started**, project re
    ```
 
    The `.env` file is ignored by Git. Add the same two values to Vercel Project Settings → Environment Variables and redeploy after changes. The frontend uses only the publishable key; never put a `service_role` key in a `VITE_` variable or browser code.
-5. Start the site. Visitors can enter the portfolio from the welcome page. The administrator uses the small **Administrator sign in** action and Google OAuth.
+5. Start the site. Visitors can enter the portfolio from the welcome page. The administrator uses the small **Administrator sign in** action and signs in with the existing email and password.
 
-The `workspaces` table and both evidence buckets are protected by row-level policies that require the administrator email and a Google Auth identity. The app has no account-creation screen. Existing evidence defaults to private; upload a new copy and choose **Public** to make it available for visitor download.
+The `workspaces` table and both evidence buckets are protected by row-level policies that require the administrator email. The app has no account-creation screen. Existing evidence defaults to private; upload a new copy and choose **Public** to make it available for visitor download.
 
 ## Run locally
 

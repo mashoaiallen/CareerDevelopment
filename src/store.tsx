@@ -19,7 +19,7 @@ type StoreApi = {
   syncStatus: SyncStatus
   syncError: string
   retrySync: () => void
-  signInWithGoogle: () => Promise<AuthResult>
+  signInWithPassword: (email: string, password: string) => Promise<AuthResult>
   signOut: () => Promise<void>
   setTasks: (next: Task[] | ((current: Task[]) => Task[])) => void
   saveTask: (task: Task) => void
@@ -42,10 +42,7 @@ type StoreApi = {
 const StoreContext = createContext<StoreApi | null>(null)
 
 function isAdministrator(user: User | null) {
-  if (user?.email?.trim().toLowerCase() !== ADMIN_EMAIL) return false
-  const appMetadata = user.app_metadata ?? {}
-  const providers = Array.isArray(appMetadata.providers) ? appMetadata.providers : []
-  return appMetadata.provider === 'google' || providers.includes('google') || Boolean(user.identities?.some(identity => identity.provider === 'google'))
+  return user?.email?.trim().toLowerCase() === ADMIN_EMAIL
 }
 
 function mergeWorkspace(value: unknown): WorkspaceData {
@@ -191,12 +188,10 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
     return () => { active = false; window.clearTimeout(timer) }
   }, [data, identity, isAdmin, user?.id, loadedFor, retryVersion])
 
-  const signInWithGoogle = useCallback(async (): Promise<AuthResult> => {
+  const signInWithPassword = useCallback(async (email: string, password: string): Promise<AuthResult> => {
     if (!supabaseConfigured || !supabase) return { error: 'Administrator sign-in is unavailable right now.' }
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: `${window.location.origin}/home` },
-    })
+    if (email.trim().toLowerCase() !== ADMIN_EMAIL) return { error: 'Invalid email or password.' }
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     return error ? { error: error.message } : {}
   }, [])
   const signOut = useCallback(async () => { if (supabase) await supabase.auth.signOut() }, [])
@@ -247,7 +242,7 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
   if (workspaceLoadError) return <BackendErrorScreen title="Could not load the portfolio" message={workspaceLoadError} onRetry={() => setWorkspaceAttempt(value => value + 1)} onSignOut={isAdmin ? signOut : undefined} />
   if (loadedFor !== identity) return <BackendLoadingScreen message="Loading the portfolio…" />
 
-  const value: StoreApi = { data, user, isAdmin, canSignIn: supabaseConfigured, syncStatus, syncError, retrySync, signInWithGoogle, signOut, setTasks, saveTask, changeTaskStatus, removeTask, saveProject, removeProject, saveSkill, saveLearning, saveLeadership, saveReport, addEvidence, removeEvidence, attachEvidence, updateStagePlan, saveProfile, updateCollection }
+  const value: StoreApi = { data, user, isAdmin, canSignIn: supabaseConfigured, syncStatus, syncError, retrySync, signInWithPassword, signOut, setTasks, saveTask, changeTaskStatus, removeTask, saveProject, removeProject, saveSkill, saveLearning, saveLeadership, saveReport, addEvidence, removeEvidence, attachEvidence, updateStagePlan, saveProfile, updateCollection }
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
 

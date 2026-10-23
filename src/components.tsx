@@ -69,12 +69,8 @@ export function Panel({ children, className = '' }: PropsWithChildren<{ classNam
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [signInError, setSignInError] = useState('')
-  const { data, user, isAdmin, canSignIn, signInWithGoogle, syncStatus, syncError, retrySync, signOut } = useWorkspace()
-  const connectAdmin = async () => {
-    const result = await signInWithGoogle()
-    setSignInError(result.error ?? '')
-  }
+  const [adminSignInOpen, setAdminSignInOpen] = useState(false)
+  const { data, user, isAdmin, canSignIn, syncStatus, syncError, retrySync, signOut } = useWorkspace()
   const unfinished = data.tasks.filter(task => task.status !== 'Completed').length
   return <div className="app-frame">
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
@@ -89,12 +85,58 @@ export function AppShell() {
     </aside>
     {mobileOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
     <div className="main-shell">
-      <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(value => !value)}><Icon name="menu" /></button><div className="breadcrumbs"><span>Portfolio</span><span className="crumb-sep">/</span><span className="crumb-current">Engineering development</span></div><div className="topbar-right">{isAdmin ? <><span className={`save-indicator sync-${syncStatus}`}><i />{syncStatus === 'saving' ? 'Saving…' : syncStatus === 'error' ? 'Save error' : 'Saved'}</span>{syncStatus === 'error' && <button className="sync-retry" onClick={retrySync}>Retry</button>}<button className="signout-button" onClick={() => void signOut()}>Sign out</button></> : canSignIn && <button className="signout-button admin-entry-button" onClick={() => void connectAdmin()}>Admin sign in</button>}</div></header>
-      {signInError && <div className="storage-warning" role="alert">{signInError}</div>}
+      <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(value => !value)}><Icon name="menu" /></button><div className="breadcrumbs"><span>Portfolio</span><span className="crumb-sep">/</span><span className="crumb-current">Engineering development</span></div><div className="topbar-right">{isAdmin ? <><span className={`save-indicator sync-${syncStatus}`}><i />{syncStatus === 'saving' ? 'Saving…' : syncStatus === 'error' ? 'Save error' : 'Saved'}</span>{syncStatus === 'error' && <button className="sync-retry" onClick={retrySync}>Retry</button>}<button className="signout-button" onClick={() => void signOut()}>Sign out</button></> : canSignIn && <button className="signout-button admin-entry-button" onClick={() => setAdminSignInOpen(true)}>Admin sign in</button>}</div></header>
+      {adminSignInOpen && <AdminSignInDialog onClose={() => setAdminSignInOpen(false)} />}
       {isAdmin && syncError && <div className="storage-warning" role="alert">Could not save your latest changes. <button onClick={retrySync}>Retry</button></div>}
       <main className="page-content"><Outlet /></main>
       <footer className="app-footer"><span>© 2026 Allen Mashoai. All rights reserved.</span></footer>
     </div>
+  </div>
+}
+
+export function AdminSignInDialog({ onClose }: { onClose: () => void }) {
+  const { isAdmin, signInWithPassword } = useWorkspace()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (isAdmin) onClose()
+  }, [isAdmin, onClose])
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const result = await signInWithPassword(email, password)
+      if (result.error) setError(result.error)
+    } catch {
+      setError('Sign-in could not be completed. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <div className="admin-signin-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="admin-signin-card" role="dialog" aria-modal="true" aria-labelledby="admin-signin-title">
+      <button className="admin-signin-close" type="button" aria-label="Close sign-in" onClick={onClose}><Icon name="close" size={17} /></button>
+      <p className="eyebrow">ADMINISTRATOR</p>
+      <h2 id="admin-signin-title">Sign in</h2>
+      <form className="admin-signin-form" onSubmit={event => void submit(event)}>
+        <label>Email address<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
+        <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <button className="button button-dark" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+      </form>
+    </section>
   </div>
 }
 

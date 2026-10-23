@@ -1,25 +1,11 @@
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
-import { Icon } from './components'
+import { AdminSignInDialog, Icon } from './components'
 import { useWorkspace } from './store'
 
 export default function WelcomePage() {
-  const { isAdmin, canSignIn, signInWithGoogle } = useWorkspace()
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const connectAdmin = async () => {
-    setBusy(true)
-    setError('')
-    try {
-      const result = await signInWithGoogle()
-      if (result.error) setError(result.error)
-    } catch {
-      setError('Google sign-in could not be started. Please try again.')
-    } finally {
-      setBusy(false)
-    }
-  }
+  const { isAdmin, canSignIn } = useWorkspace()
+  const [signInOpen, setSignInOpen] = useState(false)
 
   return <main className="welcome-page">
     <div className="welcome-container">
@@ -48,11 +34,11 @@ export default function WelcomePage() {
       <footer className="welcome-footer">
         <span>© 2026 Allen Mashoai. All rights reserved.</span>
         <div className="welcome-admin-area">
-          {error && <span role="alert" className="welcome-signin-error">{error}</span>}
-          {!isAdmin && canSignIn && <button className="welcome-admin-button" onClick={() => void connectAdmin()} disabled={busy}>{busy ? 'Opening Google…' : 'Administrator sign in'}</button>}
+          {!isAdmin && canSignIn && <button className="welcome-admin-button" onClick={() => setSignInOpen(true)}>Administrator sign in</button>}
           {isAdmin && <span className="welcome-signed-in">Administrator signed in</span>}
         </div>
       </footer>
+      {signInOpen && <AdminSignInDialog onClose={() => setSignInOpen(false)} />}
     </div>
   </main>
 }

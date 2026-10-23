@@ -57,3 +57,15 @@
 .about-contact-links .muted-note{font-size:11px}
 @media(max-width:700px){.welcome-page{padding:0 16px}.welcome-header{height:72px}.welcome-header-note{max-width:160px;text-align:right;font-size:10px}.welcome-hero{min-height:0;padding:32px 24px;margin:20px 0 22px}.welcome-mark{width:130px;height:130px}.welcome-mark-ring{width:77px;height:77px;border-radius:25px}.welcome-mark-ring>span{font-size:38px}.welcome-mark>small{font-size:8px}.welcome-highlight-grid{grid-template-columns:1fr}.welcome-highlight-grid article{min-height:auto}.welcome-footer{min-height:58px;align-items:flex-start;padding:15px 0}.welcome-signin-error{max-width:170px}}
 @media(max-width:480px){.welcome-hero{display:block;padding:27px 20px}.welcome-mark{display:none}.welcome-copy h1{font-size:31px}.welcome-intro{font-size:12px}.welcome-header .brand-mark{width:34px;height:34px;font-size:18px}.welcome-header .brand{gap:8px}}
+.admin-signin-backdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(27,39,31,.42)}
+.admin-signin-card{position:relative;width:min(100%,390px);padding:28px;background:#fff;border:1px solid #e4e9e1;border-radius:14px;box-shadow:0 20px 65px rgba(24,39,29,.2);color:#293b30}
+.admin-signin-close{position:absolute;top:15px;right:15px;width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:7px;background:#f2f5f0;color:#66766a;cursor:pointer}
+.admin-signin-card>.eyebrow{margin:0 0 7px;color:#738272;font-size:11px;font-weight:700;letter-spacing:1px}
+.admin-signin-card h2{margin:0 0 19px;font:700 22px Manrope,sans-serif;letter-spacing:-.4px}
+.admin-signin-form{display:grid;gap:14px}
+.admin-signin-form label{display:grid;gap:6px;color:#56645a;font-size:13px;font-weight:600}
+.admin-signin-form input{width:100%;min-height:42px;padding:9px 11px;border:1px solid #dfe5dc;border-radius:8px;background:#fff;color:#25312b;font:inherit;font-weight:400}
+.admin-signin-form input:focus{outline:3px solid #dce9cf;border-color:#89a278}
+.admin-signin-form .button{width:100%;min-height:42px;margin-top:3px}
+.admin-signin-form .form-error{margin:0}
+@media(max-width:480px){.admin-signin-card{padding:25px 21px}}
