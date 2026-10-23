@@ -7,7 +7,7 @@ import { localStamp, useWorkspace } from './store'
 import { deleteFile, getFileUrl, storeFile } from './fileStore'
 
 export const navItems = [
-  { to: '/', label: 'Home', icon: 'overview', end: true },
+  { to: '/home', label: 'Home', icon: 'overview', end: true },
   { to: '/roadmap', label: 'Career roadmap', icon: 'roadmap' },
   { to: '/skills', label: 'Technical skills', icon: 'skills' },
   { to: '/projects', label: 'Projects', icon: 'projects' },
@@ -69,23 +69,29 @@ export function Panel({ children, className = '' }: PropsWithChildren<{ classNam
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { data, user, syncStatus, syncError, retrySync, signOut } = useWorkspace()
+  const [signInError, setSignInError] = useState('')
+  const { data, user, isAdmin, canSignIn, signInWithGoogle, syncStatus, syncError, retrySync, signOut } = useWorkspace()
+  const connectAdmin = async () => {
+    const result = await signInWithGoogle()
+    setSignInError(result.error ?? '')
+  }
   const unfinished = data.tasks.filter(task => task.status !== 'Completed').length
   return <div className="app-frame">
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
-      <Link to="/" className="brand" onClick={() => setMobileOpen(false)}><span className="brand-mark">A<span>·</span></span><span><strong>Allen</strong><small>ENGINEERING PORTFOLIO</small></span></Link>
-      <div className="nav-caption">WORKSPACE</div>
+      <Link to="/home" className="brand" onClick={() => setMobileOpen(false)}><span className="brand-mark">A<span>·</span></span><span><strong>Allen</strong><small>ENGINEERING PORTFOLIO</small></span></Link>
+      <div className="nav-caption">PORTFOLIO</div>
       <nav className="primary-nav" aria-label="Main navigation">
         {navItems.map(item => <NavLink key={item.to} to={item.to} end={'end' in item && item.end} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setMobileOpen(false)}><Icon name={item.icon} /><span>{item.label}</span></NavLink>)}
       </nav>
       <div className="sidebar-spacer" />
       <Link to="/work" className="work-shortcut" onClick={() => setMobileOpen(false)}><span className="shortcut-icon"><Icon name="check" /></span><span><strong>My work</strong><small>{unfinished} outstanding</small></span><Icon name="arrow" size={15} /></Link>
-      <div className="sidebar-profile"><span className="avatar">A</span><span><strong>{data.profile.name}</strong><small>{user.email || 'Signed-in account'}</small></span><span className="profile-dot" title="Private workspace" /></div>
+      <div className="sidebar-profile"><span className="avatar">A</span><span><strong>{data.profile.name}</strong><small>{isAdmin ? user?.email : data.profile.title}</small></span>{isAdmin && <span className="profile-dot" title="Administrator" />}</div>
     </aside>
     {mobileOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
     <div className="main-shell">
-      <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(value => !value)}><Icon name="menu" /></button><div className="breadcrumbs"><span>Workspace</span><span className="crumb-sep">/</span><span className="crumb-current">Engineering development</span></div><div className="topbar-right"><span className={`save-indicator sync-${syncStatus}`}><i />{syncStatus === 'saving' ? 'Saving…' : syncStatus === 'error' ? 'Save error' : 'Saved'}</span>{syncStatus === 'error' && <button className="sync-retry" onClick={retrySync}>Retry</button>}<button className="signout-button" onClick={() => void signOut()}>Sign out</button></div></header>
-      {syncError && <div className="storage-warning" role="alert">Could not sync your latest changes: {syncError}. <button onClick={retrySync}>Retry sync</button></div>}
+      <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(value => !value)}><Icon name="menu" /></button><div className="breadcrumbs"><span>Portfolio</span><span className="crumb-sep">/</span><span className="crumb-current">Engineering development</span></div><div className="topbar-right">{isAdmin ? <><span className={`save-indicator sync-${syncStatus}`}><i />{syncStatus === 'saving' ? 'Saving…' : syncStatus === 'error' ? 'Save error' : 'Saved'}</span>{syncStatus === 'error' && <button className="sync-retry" onClick={retrySync}>Retry</button>}<button className="signout-button" onClick={() => void signOut()}>Sign out</button></> : canSignIn && <button className="signout-button admin-entry-button" onClick={() => void connectAdmin()}>Admin sign in</button>}</div></header>
+      {signInError && <div className="storage-warning" role="alert">{signInError}</div>}
+      {isAdmin && syncError && <div className="storage-warning" role="alert">Could not save your latest changes. <button onClick={retrySync}>Retry</button></div>}
       <main className="page-content"><Outlet /></main>
       <footer className="app-footer"><span>© 2026 Allen Mashoai. All rights reserved.</span></footer>
     </div>
@@ -93,12 +99,13 @@ export function AppShell() {
 }
 
 export function Dialog({ title, children, onClose, wide = false }: PropsWithChildren<{ title: string; onClose: () => void; wide?: boolean }>) {
+  const { isAdmin } = useWorkspace()
   useEffect(() => {
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [onClose])
-  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className={`dialog ${wide ? 'dialog-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}><div className="dialog-header"><div><p className="eyebrow">WORKSPACE RECORD</p><h2>{title}</h2></div><button className="icon-button" onClick={onClose} aria-label="Close dialog"><Icon name="close" /></button></div><div className="dialog-body">{children}</div></section></div>
+  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className={`dialog ${wide ? 'dialog-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}><div className="dialog-header"><div><p className="eyebrow">{isAdmin?'ADMINISTRATOR RECORD':'PORTFOLIO DETAIL'}</p><h2>{title}</h2></div><button className="icon-button" onClick={onClose} aria-label="Close dialog"><Icon name="close" /></button></div><div className="dialog-body">{children}</div></section></div>
 }
 
 function Field({ label, children, hint }: PropsWithChildren<{ label: string; hint?: string }>) {
@@ -107,7 +114,7 @@ function Field({ label, children, hint }: PropsWithChildren<{ label: string; hin
 const inputClass = 'form-input'
 
 export function TaskList({ tasks, stageId, projectId, compact = false, defaultCreate = false, emptyMessage, initialStatus = 'All work' }: { tasks: Task[]; stageId?: string; projectId?: string; compact?: boolean; defaultCreate?: boolean; emptyMessage?: string; initialStatus?: string }) {
-  const { data } = useWorkspace()
+  const { data, isAdmin } = useWorkspace()
   const [status, setStatus] = useState(initialStatus)
   const [discipline, setDiscipline] = useState('All disciplines')
   const [project, setProject] = useState(() => projectId ?? new URLSearchParams(window.location.search).get('project') ?? 'All projects')
@@ -151,18 +158,18 @@ export function TaskList({ tasks, stageId, projectId, compact = false, defaultCr
         {!compact && <select value={sort} onChange={event => setSort(event.target.value)} aria-label="Sort tasks"><option value="priority">Sort: priority</option><option value="target">Sort: target date</option><option value="updated">Sort: recently updated</option><option value="created">Sort: created</option></select>}
       </div>
       {!compact && <div className="date-filter"><label>Target from<input type="date" value={fromDate} onChange={event => setFromDate(event.target.value)} aria-label="Target date from" /></label><label>to<input type="date" value={toDate} onChange={event => setToDate(event.target.value)} aria-label="Target date to" /></label></div>}
-      <button className="button button-dark button-small" onClick={() => setCreateOpen(true)}><Icon name="plus" size={16} /> Add task</button>
+      {isAdmin && <button className="button button-dark button-small" onClick={() => setCreateOpen(true)}><Icon name="plus" size={16} /> Add task</button>}
     </div>
     <div className="task-results-note">{filtered.length} {filtered.length === 1 ? 'task' : 'tasks'} · {filtered.filter(task => task.targetDate && task.targetDate < localStamp().date && task.status !== 'Completed').length} overdue</div>
-    {filtered.length ? <div className="task-cards">{filtered.map(task => <TaskCard key={task.id} task={task} projectId={task.projectId} projectName={projectMap.get(task.projectId) ?? ''} onOpen={() => setSelectedId(task.id)} />)}</div> : <div className="empty-state"><span className="empty-icon"><Icon name="check" size={21} /></span><strong>{emptyMessage ?? 'No tasks match these filters.'}</strong><p>{query || fromDate || toDate ? 'Try adjusting the search or filters.' : 'Add a task when you are ready to plan the next piece of work.'}</p></div>}
+    {filtered.length ? <div className="task-cards">{filtered.map(task => <TaskCard key={task.id} task={task} projectId={task.projectId} projectName={projectMap.get(task.projectId) ?? ''} onOpen={() => setSelectedId(task.id)} />)}</div> : <div className="empty-state"><span className="empty-icon"><Icon name="check" size={21} /></span><strong>{emptyMessage ?? 'No tasks match these filters.'}</strong><p>{query || fromDate || toDate ? 'Try adjusting the search or filters.' : isAdmin ? 'Add a task when you are ready to plan the next piece of work.' : 'No work has been shared in this view yet.'}</p></div>}
     {current && <TaskDialog task={current} projects={data.projects} onClose={() => { setSelectedId(''); const url = new URL(window.location.href); url.searchParams.delete('task'); window.history.replaceState({}, '', url) }} />}
-    {createOpen && <TaskDialog task={newTask} projects={data.projects} onClose={closeCreate} creating />}
-    {projectRow && projectRow.status === 'Planned' && !tasks.length && <p className="muted-note">Planned project · tasks are editable as work is defined.</p>}
+    {isAdmin && createOpen && <TaskDialog task={newTask} projects={data.projects} onClose={closeCreate} creating />}
+    {projectRow && projectRow.status === 'Planned' && !tasks.length && <p className="muted-note">{isAdmin?'Planned project · tasks can be added as work is defined.':'Planned project · tasks will appear as work is defined.'}</p>}
   </div>
 }
 
 function TaskCard({ task, projectId, projectName, onOpen }: { task: Task; projectId: string; projectName: string; onOpen: () => void }) {
-  const { changeTaskStatus } = useWorkspace()
+  const { changeTaskStatus, isAdmin } = useWorkspace()
   const overdue = task.status !== 'Completed' && task.targetDate && task.targetDate < localStamp().date
   return <article className="task-card">
     <div className="task-status-rail"><span className={`task-dot ${task.status.toLowerCase().replace(' ', '-')}`} /></div>
@@ -170,12 +177,12 @@ function TaskCard({ task, projectId, projectName, onOpen }: { task: Task; projec
       <p>{task.why || task.description}</p>
       <div className="task-meta"><span>{task.discipline}</span>{projectName && <><i /> <Link className="task-project-link" to={`/projects/${projectId}`}>{projectName}</Link></>}{task.targetDate && <><i /><span className={overdue ? 'text-overdue' : ''}>{overdue ? 'Overdue · ' : 'Target · '}{formatDate(task.targetDate)}{task.targetTime ? `, ${task.targetTime}` : ''}</span></>}{task.status === 'In Progress' && task.actualStart && <><i/><span>Started · {dateTime(task.actualStart, task.actualStartTime)}</span></>}{task.status === 'Completed' && task.actualCompletion && <><i/><span>Completed · {dateTime(task.actualCompletion, task.actualCompletionTime)}</span></>}</div>
     </div>
-    <div className="task-card-actions"><span className={`priority priority-${task.priority.toLowerCase()}`}>{task.priority}</span>{task.status === 'Not Started' && <button className="text-action" onClick={() => changeTaskStatus(task.id, 'In Progress')}>Start</button>}{task.status !== 'Completed' && <button className="text-action" onClick={() => changeTaskStatus(task.id, 'Completed')}>Complete</button>}{task.status === 'Completed' && <button className="text-action" onClick={() => changeTaskStatus(task.id, task.actualStart ? 'In Progress' : 'Not Started')}>Reopen</button>}</div>
+    <div className="task-card-actions"><span className={`priority priority-${task.priority.toLowerCase()}`}>{task.priority}</span>{isAdmin && task.status === 'Not Started' && <button className="text-action" onClick={() => changeTaskStatus(task.id, 'In Progress')}>Start</button>}{isAdmin && task.status !== 'Completed' && <button className="text-action" onClick={() => changeTaskStatus(task.id, 'Completed')}>Complete</button>}{isAdmin && task.status === 'Completed' && <button className="text-action" onClick={() => changeTaskStatus(task.id, task.actualStart ? 'In Progress' : 'Not Started')}>Reopen</button>}</div>
   </article>
 }
 
 function TaskDialog({ task, projects, onClose, creating = false }: { task: Task; projects: Project[]; onClose: () => void; creating?: boolean }) {
-  const { saveTask, removeTask, changeTaskStatus, data } = useWorkspace()
+  const { saveTask, removeTask, changeTaskStatus, data, isAdmin } = useWorkspace()
   const [draft, setDraft] = useState<Task>(task)
   const [editing, setEditing] = useState(creating)
   const [saved, setSaved] = useState(false)
@@ -185,11 +192,11 @@ function TaskDialog({ task, projects, onClose, creating = false }: { task: Task;
   const overdue = task.status !== 'Completed' && task.targetDate && task.targetDate < localStamp().date
   return <Dialog title={creating ? 'Create a task' : task.title || 'Task details'} onClose={onClose} wide>
     {!editing && <>
-      <div className="record-banner"><StatusBadge status={task.status} /><span className="priority priority-in-banner">{task.priority} priority</span>{overdue && <span className="overdue-pill">Target date passed</span>}<div className="record-banner-actions"><button className="button button-outline button-small" onClick={() => { setDraft(task); setEditing(true) }}>Edit task</button>{task.status === 'Not Started' && <button className="button button-soft button-small" onClick={() => changeTaskStatus(task.id, 'In Progress')}>Start task</button>}{task.status !== 'Completed' && <button className="button button-dark button-small" onClick={() => changeTaskStatus(task.id, 'Completed')}>Mark complete</button>}{task.status === 'Completed' && <button className="button button-soft button-small" onClick={() => changeTaskStatus(task.id, task.actualStart ? 'In Progress' : 'Not Started')}>Reopen</button>}</div></div>
+      <div className="record-banner"><StatusBadge status={task.status} /><span className="priority priority-in-banner">{task.priority} priority</span>{overdue && <span className="overdue-pill">Target date passed</span>}{isAdmin && <div className="record-banner-actions"><button className="button button-outline button-small" onClick={() => { setDraft(task); setEditing(true) }}>Edit task</button>{task.status === 'Not Started' && <button className="button button-soft button-small" onClick={() => changeTaskStatus(task.id, 'In Progress')}>Start task</button>}{task.status !== 'Completed' && <button className="button button-dark button-small" onClick={() => changeTaskStatus(task.id, 'Completed')}>Mark complete</button>}{task.status === 'Completed' && <button className="button button-soft button-small" onClick={() => changeTaskStatus(task.id, task.actualStart ? 'In Progress' : 'Not Started')}>Reopen</button>}</div>}</div>
       <div className="detail-grid"><Detail label="Why this matters" value={task.why || 'Not added yet.'} wide /><Detail label="Description" value={task.description || 'Not added yet.'} /><Detail label="Definition of done" value={task.doneDefinition || 'Not added yet.'} /><Detail label="Discipline" value={task.discipline || 'Not set'} /><Detail label="Career stage" value={task.stageId || 'Not linked'} /><Detail label="Planned start" value={dateTime(task.plannedStart, task.plannedStartTime)} /><Detail label="Planned completion" value={dateTime(task.targetDate, task.targetTime)} /><Detail label="Actual start" value={dateTime(task.actualStart, task.actualStartTime)} /><Detail label="Actual completion" value={dateTime(task.actualCompletion, task.actualCompletionTime)} /><Detail label="Related technical skills" value={task.skillIds.map(id=>data.skills.find(skill=>skill.id===id)?.name).filter(Boolean).join(', ')||'No skills linked'} /><Detail label="Dependencies" value={task.dependencies.map(id=>data.tasks.find(item=>item.id===id)?.title).filter(Boolean).join(', ')||'No dependencies'} /><Detail label="Notes" value={task.notes || 'No notes recorded.'} wide /></div>
       {task.statusHistory.length > 0 && <div className="history-block"><h3>Status history</h3>{task.statusHistory.map((entry, index) => <div key={index}><StatusBadge status={entry.status} /><span>{dateTime(entry.date, entry.time)}</span></div>)}</div>}
       <EvidenceManager ownerType="task" ownerId={task.id} evidenceIds={task.evidenceIds} />
-      <div className="dialog-footer spread"><span className="muted-note">Changes sync to your account.</span><button className="text-action danger-text" onClick={doDelete}>Delete task</button></div>
+      {isAdmin && <div className="dialog-footer spread"><span className="muted-note">Changes sync to your account.</span><button className="text-action danger-text" onClick={doDelete}>Delete task</button></div>}
     </>}
     {editing && <form onSubmit={submit} className="record-form">
       <div className="form-grid"><Field label="Task title *"><input className={inputClass} required value={draft.title} onChange={event => set('title', event.target.value)} /></Field><Field label="Discipline"><input className={inputClass} value={draft.discipline} onChange={event => set('discipline', event.target.value)} list="disciplines"/><datalist id="disciplines"><option>Control Engineering</option><option>Electrical Engineering</option><option>Embedded Systems</option><option>Instrumentation</option><option>Engineering Delivery</option></datalist></Field>
@@ -209,12 +216,13 @@ function Detail({ label, value, wide = false }: { label: string; value: string; 
 }
 
 export function EvidenceManager({ ownerType, ownerId, evidenceIds }: { ownerType: OwnerType; ownerId: string; evidenceIds: string[] }) {
-  const { data, user, addEvidence, attachEvidence, removeEvidence } = useWorkspace()
+  const { data, user, isAdmin, addEvidence, attachEvidence, removeEvidence } = useWorkspace()
   const [uploadOpen, setUploadOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [date, setDate] = useState('')
   const [category, setCategory] = useState('Technical calculation')
+  const [visibility, setVisibility] = useState<'private' | 'public'>('private')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const evidence = evidenceIds.map(id => data.evidence.find(item => item.id === id)).filter((item): item is Evidence => Boolean(item))
@@ -230,20 +238,21 @@ export function EvidenceManager({ ownerType, ownerId, evidenceIds }: { ownerType
     setBusy(true)
     try {
       const id = crypto.randomUUID()
+      if (!user || !isAdmin) throw new Error('Only the administrator can upload evidence.')
       const storageKey = `${user.id}/${id}`
-      await storeFile(storageKey, file)
-      const row: Evidence = { id, title: title.trim() || file.name, description: description.trim(), date, category, ownerType, ownerId, filename: file.name, mimeType: file.type || mimeGuess(file.name), size: file.size, storageKey }
+      await storeFile(storageKey, file, visibility)
+      const row: Evidence = { id, visibility, title: title.trim() || file.name, description: description.trim(), date, category, ownerType, ownerId, filename: file.name, mimeType: file.type || mimeGuess(file.name), size: file.size, storageKey }
       addEvidence(row); attachEvidence(ownerType, ownerId, id); setUploadOpen(false); setTitle(''); setDescription(''); setDate('')
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not upload this file. Please try again.') }
     finally { setBusy(false) }
   }
   const remove = async (item: Evidence) => {
-    if (!window.confirm(`Remove “${item.title}” and its private file?`)) return
-    try { await deleteFile(item.storageKey); removeEvidence(item.id) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not remove this file. Please try again.') }
+    if (!isAdmin || !window.confirm(`Remove “${item.title}” and its file?`)) return
+    try { await deleteFile(item.storageKey, item.visibility); removeEvidence(item.id) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not remove this file. Please try again.') }
   }
-  return <section className="evidence-section"><div className="section-title"><div><h3>Technical evidence</h3><p>Attach real work and supporting files to this record.</p></div><button className="button button-outline button-small" onClick={() => setUploadOpen(value => !value)}><Icon name="upload" size={15} /> Add evidence</button></div>
-    {evidence.length ? <div className="evidence-grid">{evidence.map(item => <EvidenceCard key={item.id} item={item} onRemove={() => remove(item)} />)}</div> : <div className="evidence-empty">No evidence attached yet.</div>}
-    {uploadOpen && <form className="evidence-upload" onSubmit={upload}><div className="form-grid"><Field label="Choose file *"><input className={inputClass} name="evidence-file" type="file" accept={accept} required /></Field><Field label="Evidence title"><input className={inputClass} value={title} onChange={event => setTitle(event.target.value)} placeholder="Defaults to the filename" /></Field><Field label="Category"><select className={inputClass} value={category} onChange={event => setCategory(event.target.value)}><option>Technical calculation</option><option>MATLAB / Simulink</option><option>Hardware photograph</option><option>Test result</option><option>Circuit diagram</option><option>Technical report</option><option>Source code</option><option>Reference</option><option>Other</option></select></Field><Field label="Evidence date"><input type="date" className={inputClass} value={date} onChange={event => setDate(event.target.value)} /></Field><Field label="Description"><textarea className={inputClass} rows={2} value={description} onChange={event => setDescription(event.target.value)} placeholder="What does this file show?" /></Field></div><p className="form-hint">Files are stored privately, up to 20 MB each. Access links expire after ten minutes.</p>{error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-footer"><button type="button" className="button button-outline button-small" onClick={() => setUploadOpen(false)}>Cancel</button><button className="button button-dark button-small" disabled={busy}>{busy ? 'Uploading…' : 'Attach evidence'}</button></div></form>}
+  return <section className="evidence-section"><div className="section-title"><div><h3>Technical evidence</h3><p>{isAdmin?'Attach real work and supporting files to this record.':'Files approved for sharing appear here.'}</p></div>{isAdmin && <button className="button button-outline button-small" onClick={() => setUploadOpen(value => !value)}><Icon name="upload" size={15} /> Add evidence</button>}</div>
+    {evidence.length ? <div className="evidence-grid">{evidence.map(item => <EvidenceCard key={item.id} item={item} isAdmin={isAdmin} onRemove={() => void remove(item)} />)}</div> : <div className="evidence-empty">No evidence attached yet.</div>}
+    {isAdmin && uploadOpen && <form className="evidence-upload" onSubmit={upload}><div className="form-grid"><Field label="Choose file *"><input className={inputClass} name="evidence-file" type="file" accept={accept} required /></Field><Field label="Evidence title"><input className={inputClass} value={title} onChange={event => setTitle(event.target.value)} placeholder="Defaults to the filename" /></Field><Field label="Visibility"><select className={inputClass} value={visibility} onChange={event => setVisibility(event.target.value as 'private' | 'public')}><option value="private">Private · administrator only</option><option value="public">Public · visitors can download</option></select></Field><Field label="Category"><select className={inputClass} value={category} onChange={event => setCategory(event.target.value)}><option>Technical calculation</option><option>MATLAB / Simulink</option><option>Hardware photograph</option><option>Test result</option><option>Circuit diagram</option><option>Technical report</option><option>Source code</option><option>Reference</option><option>Other</option></select></Field><Field label="Evidence date"><input type="date" className={inputClass} value={date} onChange={event => setDate(event.target.value)} /></Field><Field label="Description"><textarea className={inputClass} rows={2} value={description} onChange={event => setDescription(event.target.value)} placeholder="What does this file show?" /></Field></div><p className="form-hint">Files can be up to 20 MB. Public files can be downloaded by anyone with the portfolio; private files remain administrator-only.</p>{error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-footer"><button type="button" className="button button-outline button-small" onClick={() => setUploadOpen(false)}>Cancel</button><button className="button button-dark button-small" disabled={busy}>{busy ? 'Uploading…' : 'Attach evidence'}</button></div></form>}
   </section>
 }
 
@@ -252,17 +261,24 @@ function mimeGuess(name: string) {
   return ({ png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', webp:'image/webp', gif:'image/gif', svg:'image/svg+xml', pdf:'application/pdf', csv:'text/csv', txt:'text/plain', md:'text/markdown' } as Record<string,string>)[ext ?? ''] ?? 'application/octet-stream'
 }
 
-function EvidenceCard({ item, onRemove }: { item: Evidence; onRemove: () => void }) {
+function EvidenceCard({ item, isAdmin, onRemove }: { item: Evidence; isAdmin: boolean; onRemove: () => void }) {
   const [url, setUrl] = useState('')
+  const [downloadUrl, setDownloadUrl] = useState('')
   const [missing, setMissing] = useState(false)
+  const isImage = item.mimeType.startsWith('image/')
   useEffect(() => {
     let active = true
-    getFileUrl(item.storageKey).then(signedUrl => { if (!active) return; setUrl(signedUrl) }).catch(() => { if (active) setMissing(true) })
+    const fileDownload = getFileUrl(item.storageKey, item.visibility, item.filename, true)
+    const fileDisplay = isImage ? getFileUrl(item.storageKey, item.visibility, item.filename, false) : fileDownload
+    Promise.all([fileDisplay, fileDownload]).then(([displayUrl, fileDownloadUrl]) => {
+      if (!active) return
+      setUrl(displayUrl)
+      setDownloadUrl(fileDownloadUrl)
+    }).catch(() => { if (active) setMissing(true) })
     return () => { active = false }
-  }, [item.storageKey])
-  const isImage = item.mimeType.startsWith('image/')
+  }, [item.storageKey, item.visibility, item.filename, isImage])
   const size = item.size > 1024 * 1024 ? `${(item.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(item.size / 1024))} KB`
-  return <article className="evidence-card">{isImage && url ? <a href={url} target="_blank" rel="noreferrer" className="evidence-preview"><img src={url} alt={item.description || item.title} /></a> : <div className="file-icon">{item.filename.split('.').pop()?.toUpperCase().slice(0, 5) || 'FILE'}</div>}<div className="evidence-card-info"><strong>{item.title}</strong><span>{item.category}{item.date ? ` · ${formatDate(item.date)}` : ''} · {size}</span>{item.description && <p>{item.description}</p>}{missing ? <span className="form-error">File unavailable. Please try again later.</span> : url ? <a className="text-link" href={url} download={item.filename}>Open / download <Icon name="arrow" size={13}/></a> : <span className="muted-note">Loading file…</span>}</div><button className="icon-button tiny-icon danger-text" onClick={onRemove} aria-label={`Remove ${item.title}`}><Icon name="close" size={15}/></button></article>
+  return <article className="evidence-card">{isImage && url ? <a href={url} target="_blank" rel="noreferrer" className="evidence-preview"><img src={url} alt={item.description || item.title} /></a> : <div className="file-icon">{item.filename.split('.').pop()?.toUpperCase().slice(0, 5) || 'FILE'}</div>}<div className="evidence-card-info"><strong>{item.title}</strong><span>{item.category}{item.date ? ` · ${formatDate(item.date)}` : ''} · {size}{isAdmin ? ` · ${item.visibility}` : ''}</span>{item.description && <p>{item.description}</p>}{missing ? <span className="form-error">File unavailable. Please try again later.</span> : downloadUrl ? <a className="text-link" href={downloadUrl} download={item.filename}>Download file <Icon name="arrow" size={13}/></a> : <span className="muted-note">Loading file…</span>}</div>{isAdmin && <button className="icon-button tiny-icon danger-text" onClick={onRemove} aria-label={`Remove ${item.title}`}><Icon name="close" size={15}/></button>}</article>
 }
 
 export function SectionCallout({ children, tone = 'sage' }: PropsWithChildren<{ tone?: 'sage'|'amber'|'blue' }>) {

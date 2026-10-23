@@ -1,14 +1,18 @@
-# Allen — Electrical Engineering career development
+# Allen — Electrical Engineering portfolio
 
-A React and TypeScript workspace for Allen, a third-year Electrical Engineering student at Wits in 2026. It combines a career portfolio with a task, learning, project, and evidence tracker. Supabase Auth protects each account; Supabase Postgres stores workspace records and a private Supabase Storage bucket stores evidence files.
+A React and TypeScript portfolio for Allen, a third-year Electrical Engineering student at Wits in 2026. Visitors can browse the portfolio without signing in. Only the administrator account `mashoaiallen@gmail.com`, signed in with Google, can edit portfolio records or upload and remove evidence.
+
+Portfolio records are stored in Supabase Postgres. A database trigger publishes a read-only projection for visitors and removes private evidence metadata from that projection. Private evidence files stay in the private `portfolio-evidence` bucket. Files explicitly marked public at upload go to `portfolio-public-evidence` and can be downloaded by visitors.
 
 Starter content remains conservative: tasks begin as **Not Started**, project results are not invented, skill levels begin as **Not assessed**, and dates and evidence remain blank until entered.
 
 ## Connect Supabase
 
-1. Create a Supabase project.
-2. In Supabase SQL Editor, run [`supabase/migrations/20261023000000_create_workspaces_and_evidence.sql`](supabase/migrations/20261023000000_create_workspaces_and_evidence.sql). It creates a per-user `workspaces` table, enables row-level security, and creates the private `portfolio-evidence` bucket with a 20 MB file limit and per-user Storage policies.
-3. Enable Email authentication. Configure the Supabase Auth Site URL and Redirect URLs for your local Vite URL and deployed Vercel domain. The sign-up form uses the current site origin for email confirmation.
+1. In Supabase SQL Editor, run the migrations in order:
+   - [`supabase/migrations/20261023000000_create_workspaces_and_evidence.sql`](supabase/migrations/20261023000000_create_workspaces_and_evidence.sql)
+   - [`supabase/migrations/20261023010000_public_portfolio_admin_access.sql`](supabase/migrations/20261023010000_public_portfolio_admin_access.sql)
+2. Enable Google as an Auth provider and configure its OAuth client credentials. The administrator must sign in with the Google account whose email is `mashoaiallen@gmail.com`.
+3. In Supabase Auth URL Configuration, set the production site URL and allow the production Vercel URL plus local development URL with the `/home` path as redirect destinations.
 4. Fill in the root `.env` file:
 
    ```dotenv
@@ -16,10 +20,10 @@ Starter content remains conservative: tasks begin as **Not Started**, project re
    VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
    ```
 
-   The `.env` file is ignored by Git. The same values can be added as Vercel project environment variables. The frontend uses only the Supabase publishable key; never put a `service_role` key in a `VITE_` variable or browser code.
-5. Restart the development server and create an account or sign in. A new account gets its own starter workspace the first time it signs in.
+   The `.env` file is ignored by Git. Add the same two values to Vercel Project Settings → Environment Variables and redeploy after changes. The frontend uses only the publishable key; never put a `service_role` key in a `VITE_` variable or browser code.
+5. Start the site. Visitors can enter the portfolio from the welcome page. The administrator uses the small **Administrator sign in** action and Google OAuth.
 
-The workspace is saved as one JSONB snapshot per Auth user. Every workspace query is filtered by the signed-in user and protected by Postgres RLS. Evidence object paths begin with the user's Auth UUID; the bucket is private, and the app creates signed links that expire after ten minutes. Supabase Auth retains the sign-in session in browser storage; workspace records and uploaded file bytes are stored in Supabase, not browser storage.
+The `workspaces` table and both evidence buckets are protected by row-level policies that require the administrator email and a Google Auth identity. The app has no account-creation screen. Existing evidence defaults to private; upload a new copy and choose **Public** to make it available for visitor download.
 
 ## Run locally
 
@@ -39,38 +43,32 @@ npm run preview
 
 ## Deploy to Vercel
 
-1. Push this project to a Git provider and import the repository in Vercel.
-2. Use the Vite framework preset. The build command is `npm run build` and the output directory is `dist`.
-3. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in Vercel Project Settings → Environment Variables for the environments you will deploy. Redeploy after changing them.
-4. Add the production Vercel URL (and any preview URLs you will use) to Supabase Auth's allowed redirect URLs and set the production Site URL.
+1. Import the Git repository in Vercel and use the Vite framework preset.
+2. Set the build command to `npm run build` and the output directory to `dist`.
+3. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in Vercel Project Settings → Environment Variables for the environments you deploy.
+4. Add the production Vercel URL and any preview URLs you use to Supabase Auth's allowed redirect URLs. Set the production Site URL.
+5. Make sure Vercel deployment protection allows public access to the production deployment.
 
 [`vercel.json`](vercel.json) rewrites application routes to `index.html`, so deep links such as `/projects/dc-motor-pid` work after deployment.
 
 ## Main areas
 
-- **Home** — career direction, data-derived counts, upcoming work, projects, dated updates, and task views.
-- **Career roadmap** — ten development stages, competency/evidence guidance, editable dates, and linked tasks.
-- **Technical skills** — current and target levels, related work, review dates, next actions, and evidence.
-- **Projects** — searchable project library, case studies, tasks, reports, evidence, dates, and publication status.
-- **Learning & research** — study records, sources, activity types, notes, projects, and technical reports.
-- **Leadership** — five progressive levels and editable evidence-based reflections.
-- **My work** — shared task creation, scheduling, status, filters, sorting, dependencies, skills, and completion history.
-- **About** — editable professional profile and workspace/review exports.
+- **Welcome** — introduces the portfolio and links to the public site; the administrator sign-in link is discreet.
+- **Home** — career direction, progress, current work, projects and dated updates.
+- **Career roadmap** — ten development stages, evidence guidance and linked tasks.
+- **Technical skills** — current and target levels, related work, review dates and next actions.
+- **Projects** — searchable case studies, tasks, reports, evidence and dates.
+- **Learning & research** — study records, sources, activity types and technical reports.
+- **Leadership** — five progressive levels and evidence-based reflections.
+- **My work** — task schedules, status, filters, sorting, dependencies and completion history.
+- **About** — professional profile and contact links.
 
-## Persistence and privacy
+## Data and access
 
-Workspace records are stored in the Supabase `public.workspaces` table and evidence bytes in the private `portfolio-evidence` bucket. Each account can access only its own database row and object paths under its Auth UUID. Keep the migration's RLS policies enabled. Do not change the bucket to public.
+Visitors can read portfolio records and download only evidence explicitly uploaded as public. Private evidence metadata is removed from the public database projection, and private file downloads require the administrator session. Only the administrator can update records, stage plans, profile details or evidence.
 
-Changes sync to Supabase shortly after editing. The top bar shows sync status and errors. If a save fails, retry after checking the Supabase project and policies. The app does not use localStorage or IndexedDB for workspace records or evidence. Existing browser-local records from an older version are not imported automatically.
-
-The **Download workspace backup** button exports record data and evidence metadata as JSON; it does not include uploaded file bytes. Evidence remains in Supabase Storage. Portfolio review handoffs exclude file bytes and do not publish content.
-
-The deployable portfolio content remains maintained in the source project. Browser workspace data and uploaded evidence do not alter the public site automatically. Project records have **Draft / Local**, **Ready for Review**, and **Published in Portfolio** labels; changing a label does not deploy content.
+Workspace records and evidence file bytes are not stored in browser local storage or IndexedDB. Supabase Auth keeps its session in browser storage. The JSON backup contains records and evidence metadata, not uploaded file bytes.
 
 ## Tests
 
-Run the Playwright smoke test with `npm test`. It checks the Supabase configuration/sign-in gate and does not write workspace data. Deeper authenticated CRUD checks should use a dedicated Supabase test account and project.
-
-## Extending later
-
-The current database stores one workspace snapshot per account. If multiple people need to collaborate on the same workspace, or simultaneous edits across devices become common, move records into normalized tables and add shared-workspace membership and conflict handling.
+Run the Playwright smoke test with `npm test`. It checks public entry and verifies that visitor views do not expose record-edit controls.

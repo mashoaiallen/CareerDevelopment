@@ -131,6 +131,7 @@ export interface Report {
 
 export interface Evidence {
   id: string
+  visibility: 'private' | 'public'
   title: string
   description: string
   date: string

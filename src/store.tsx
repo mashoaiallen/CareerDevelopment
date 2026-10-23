@@ -2,19 +2,24 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { PropsWithChildren } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { initialData } from './seeds'
-import { AuthScreen, BackendErrorScreen, BackendLoadingScreen, BackendSetupScreen } from './backendScreens'
+import { BackendErrorScreen, BackendLoadingScreen } from './backendScreens'
 import { supabase, supabaseConfigured } from './supabase'
 import type { Evidence, Project, Report, Skill, Task, WorkspaceData, LearningRecord, LeadershipRecord, OwnerType, ProfessionalProfile, StagePlan } from './model'
 
 type SyncStatus = 'loading' | 'saving' | 'saved' | 'error'
 type AuthResult = { error?: string; message?: string }
+type WorkspaceUpdate = (updater: (current: WorkspaceData) => WorkspaceData) => void
+const ADMIN_EMAIL = 'mashoaiallen@gmail.com'
 
 type StoreApi = {
   data: WorkspaceData
-  user: User
+  user: User | null
+  isAdmin: boolean
+  canSignIn: boolean
   syncStatus: SyncStatus
   syncError: string
   retrySync: () => void
+  signInWithGoogle: () => Promise<AuthResult>
   signOut: () => Promise<void>
   setTasks: (next: Task[] | ((current: Task[]) => Task[])) => void
   saveTask: (task: Task) => void
@@ -36,6 +41,13 @@ type StoreApi = {
 
 const StoreContext = createContext<StoreApi | null>(null)
 
+function isAdministrator(user: User | null) {
+  if (user?.email?.trim().toLowerCase() !== ADMIN_EMAIL) return false
+  const appMetadata = user.app_metadata ?? {}
+  const providers = Array.isArray(appMetadata.providers) ? appMetadata.providers : []
+  return appMetadata.provider === 'google' || providers.includes('google') || Boolean(user.identities?.some(identity => identity.provider === 'google'))
+}
+
 function mergeWorkspace(value: unknown): WorkspaceData {
   const saved = value && typeof value === 'object' ? value as Partial<WorkspaceData> : {}
   return {
@@ -47,7 +59,7 @@ function mergeWorkspace(value: unknown): WorkspaceData {
     learning: Array.isArray(saved.learning) ? saved.learning : initialData.learning,
     leadership: Array.isArray(saved.leadership) ? saved.leadership : initialData.leadership,
     reports: Array.isArray(saved.reports) ? saved.reports : initialData.reports,
-    evidence: Array.isArray(saved.evidence) ? saved.evidence : initialData.evidence,
+    evidence: Array.isArray(saved.evidence) ? saved.evidence.map(item => ({ ...item, visibility: item.visibility === 'public' ? 'public' : 'private' })) : initialData.evidence,
     stagePlans: { ...initialData.stagePlans, ...saved.stagePlans },
     profile: { ...initialData.profile, ...saved.profile },
   }
@@ -67,67 +79,102 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
   const [retryVersion, setRetryVersion] = useState(0)
   const lastSyncedData = useRef('')
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
+  const isAdmin = isAdministrator(user)
+  const identity = isAdmin ? `admin:${user!.id}` : 'public'
 
   useEffect(() => {
-    if (!supabase) { setAuthReady(true); return }
+    const client = supabase
+    if (!client) { setAuthReady(true); return }
     let active = true
-    setAuthReady(false); setConnectionError('')
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (active) setUser(session?.user ?? null)
-    })
-    supabase.auth.getSession().then(({ data: result, error }) => {
+    setAuthReady(false)
+    setConnectionError('')
+    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
       if (!active) return
-      if (error) setConnectionError('Could not connect to your workspace. Please try again.')
-      setUser(result.session?.user ?? null)
+      const nextUser = session?.user ?? null
+      if (nextUser && !isAdministrator(nextUser)) {
+        setUser(null)
+        window.setTimeout(() => { if (active) void client.auth.signOut() }, 0)
+      } else setUser(nextUser)
+    })
+    client.auth.getSession().then(async ({ data: result, error }) => {
+      if (!active) return
+      if (error) setConnectionError('Could not connect to the portfolio. Please try again.')
+      const nextUser = result.session?.user ?? null
+      if (nextUser && !isAdministrator(nextUser)) {
+        await client.auth.signOut()
+        if (!active) return
+        setUser(null)
+      } else setUser(nextUser)
       setAuthReady(true)
     }).catch(() => {
       if (!active) return
-      setConnectionError('Could not connect to your workspace. Please try again.')
+      setConnectionError('Could not connect to the portfolio. Please try again.')
       setAuthReady(true)
     })
     return () => { active = false; subscription.unsubscribe() }
   }, [connectionAttempt])
 
   useEffect(() => {
+    if (!authReady) return
     const client = supabase
-    if (!client || !user) { setLoadedFor(null); setWorkspaceLoadError(''); return }
     let active = true
-    setLoadedFor(null); setWorkspaceLoadError(''); setSyncStatus('loading')
+    setLoadedFor(null)
+    setWorkspaceLoadError('')
+    setSyncStatus('loading')
     const load = async () => {
-      const { data: row, error } = await client.from('workspaces').select('data').eq('user_id', user.id).maybeSingle()
-      if (error) throw error
-      let workspaceData: WorkspaceData
-      if (row) {
-        workspaceData = mergeWorkspace(row.data)
-      } else {
-        workspaceData = initialData
-        const { error: insertError } = await client.from('workspaces').insert({ user_id: user.id, data: workspaceData })
-        if (insertError?.code === '23505') {
-          const { data: racedRow, error: reloadError } = await client.from('workspaces').select('data').eq('user_id', user.id).single()
-          if (reloadError) throw reloadError
-          workspaceData = mergeWorkspace(racedRow.data)
-        } else if (insertError) throw insertError
+      if (!client) {
+        setData(initialData)
+        lastSyncedData.current = JSON.stringify(initialData)
+        setLoadedFor(identity)
+        setSyncStatus('saved')
+        return
       }
+      if (isAdmin && user) {
+        const { data: row, error } = await client.from('workspaces').select('data').eq('user_id', user.id).maybeSingle()
+        if (error) throw error
+        let workspaceData: WorkspaceData
+        if (row) {
+          workspaceData = mergeWorkspace(row.data)
+        } else {
+          workspaceData = initialData
+          const { error: insertError } = await client.from('workspaces').insert({ user_id: user.id, data: workspaceData })
+          if (insertError?.code === '23505') {
+            const { data: racedRow, error: reloadError } = await client.from('workspaces').select('data').eq('user_id', user.id).single()
+            if (reloadError) throw reloadError
+            workspaceData = mergeWorkspace(racedRow.data)
+          } else if (insertError) throw insertError
+        }
+        if (!active) return
+        setData(workspaceData)
+        lastSyncedData.current = JSON.stringify(workspaceData)
+        setLoadedFor(identity)
+        setSyncStatus('saved')
+        return
+      }
+      const { data: row, error } = await client.from('portfolio_public').select('data').eq('id', true).maybeSingle()
+      if (error) throw error
+      const workspaceData = row ? mergeWorkspace(row.data) : initialData
       if (!active) return
       setData(workspaceData)
       lastSyncedData.current = JSON.stringify(workspaceData)
-      setLoadedFor(user.id)
+      setLoadedFor(identity)
       setSyncStatus('saved')
     }
     load().catch(() => {
       if (!active) return
-      setWorkspaceLoadError('Could not load your workspace. Please try again.')
+      setWorkspaceLoadError('The portfolio data could not be loaded. Please try again in a moment.')
     })
     return () => { active = false }
-  }, [user?.id, workspaceAttempt])
+  }, [authReady, identity, isAdmin, user?.id, workspaceAttempt])
 
   useEffect(() => {
     const client = supabase
-    if (!client || !user || loadedFor !== user.id) return
+    if (!client || !isAdmin || !user || loadedFor !== identity) return
     const snapshot = JSON.stringify(data)
     if (snapshot === lastSyncedData.current) { setSyncStatus('saved'); return }
     let active = true
-    setSyncStatus('saving'); setSyncError('')
+    setSyncStatus('saving')
+    setSyncError('')
     const timer = window.setTimeout(() => {
       const persist = async () => {
         const { error } = await client.from('workspaces').upsert({ user_id: user.id, data: JSON.parse(snapshot), updated_at: new Date().toISOString() })
@@ -138,37 +185,31 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       saveQueue.current.then(() => {
         if (active) { setSyncStatus('saved'); setSyncError('') }
       }).catch(() => {
-        if (active) {
-          setSyncStatus('error')
-          setSyncError('Could not save your latest changes. Please try again.')
-        }
+        if (active) { setSyncStatus('error'); setSyncError('Could not save the latest changes. Please try again.') }
       })
     }, 400)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [data, user?.id, loadedFor, retryVersion])
+  }, [data, identity, isAdmin, user?.id, loadedFor, retryVersion])
 
-  const signIn = useCallback(async (email: string, password: string): Promise<AuthResult> => {
-    if (!supabase) return { error: 'Workspace sign-in is currently unavailable. Please contact the site administrator.' }
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+  const signInWithGoogle = useCallback(async (): Promise<AuthResult> => {
+    if (!supabaseConfigured || !supabase) return { error: 'Administrator sign-in is unavailable right now.' }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/home` },
+    })
     return error ? { error: error.message } : {}
   }, [])
-  const signUp = useCallback(async (email: string, password: string): Promise<AuthResult> => {
-    if (!supabase) return { error: 'Workspace sign-up is currently unavailable. Please contact the site administrator.' }
-    const { data: result, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } })
-    if (error) return { error: error.message }
-    if (!result.session) return { message: 'Account created. Check your email to confirm it, then sign in.' }
-    return { message: 'Account created. Connecting to your workspace…' }
-  }, [])
   const signOut = useCallback(async () => { if (supabase) await supabase.auth.signOut() }, [])
+  const mutate = useCallback<WorkspaceUpdate>((updater) => { if (isAdmin) setData(updater) }, [isAdmin])
 
   const updateCollection = useCallback<StoreApi['updateCollection']>((key, rows) => {
-    setData(current => ({ ...current, [key]: rows }))
-  }, [])
-  const saveTask = useCallback((task: Task) => setData(current => ({ ...current, tasks: current.tasks.some(row => row.id === task.id) ? current.tasks.map(row => row.id === task.id ? task : row) : [task, ...current.tasks] })), [])
-  const setTasks = useCallback<StoreApi['setTasks']>((next) => setData(current => ({ ...current, tasks: typeof next === 'function' ? next(current.tasks) : next })), [])
+    mutate(current => ({ ...current, [key]: rows }))
+  }, [mutate])
+  const saveTask = useCallback((task: Task) => mutate(current => ({ ...current, tasks: current.tasks.some(row => row.id === task.id) ? current.tasks.map(row => row.id === task.id ? task : row) : [task, ...current.tasks] })), [mutate])
+  const setTasks = useCallback<StoreApi['setTasks']>((next) => mutate(current => ({ ...current, tasks: typeof next === 'function' ? next(current.tasks) : next })), [mutate])
   const changeTaskStatus = useCallback((id: string, status: Task['status']) => {
     const stamp = localStamp()
-    setData(current => ({ ...current, tasks: current.tasks.map(task => {
+    mutate(current => ({ ...current, tasks: current.tasks.map(task => {
       if (task.id !== id || task.status === status) return task
       const history = [...(task.statusHistory ?? []), { status, date: stamp.date, time: stamp.time }]
       const next: Task = { ...task, status, updatedAt: stamp.date, statusHistory: history }
@@ -176,39 +217,37 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       if (status === 'Completed') { next.actualCompletion = stamp.date; next.actualCompletionTime = stamp.time }
       return next
     }) }))
-  }, [])
-  const removeTask = useCallback((id: string) => setData(current => ({ ...current, tasks: current.tasks.filter(row => row.id !== id) })), [])
-  const saveProject = useCallback((row: Project) => setData(current => ({ ...current, projects: current.projects.some(x => x.id === row.id) ? current.projects.map(x => x.id === row.id ? { ...row, reportIds: current.reports.filter(report => report.projectId === row.id).map(report => report.id) } : x) : [{ ...row, reportIds: current.reports.filter(report => report.projectId === row.id).map(report => report.id) }, ...current.projects] })), [])
-  const removeProject = useCallback((id: string) => setData(current => ({ ...current, projects: current.projects.filter(row => row.id !== id), tasks: current.tasks.map(row => row.projectId === id ? { ...row, projectId: '' } : row), learning: current.learning.map(row => row.projectId === id ? { ...row, projectId: '' } : row), reports: current.reports.map(row => row.projectId === id ? { ...row, projectId: '' } : row) })), [])
-  const saveSkill = useCallback((row: Skill) => setData(current => ({ ...current, skills: current.skills.some(x => x.id === row.id) ? current.skills.map(x => x.id === row.id ? row : x) : [row, ...current.skills] })), [])
-  const saveLearning = useCallback((row: LearningRecord) => setData(current => ({ ...current, learning: current.learning.some(x => x.id === row.id) ? current.learning.map(x => x.id === row.id ? row : x) : [row, ...current.learning] })), [])
-  const saveLeadership = useCallback((row: LeadershipRecord) => setData(current => ({ ...current, leadership: current.leadership.map(x => x.id === row.id ? row : x) })), [])
-  const saveReport = useCallback((row: Report) => setData(current => {
+  }, [mutate])
+  const removeTask = useCallback((id: string) => mutate(current => ({ ...current, tasks: current.tasks.filter(row => row.id !== id) })), [mutate])
+  const saveProject = useCallback((row: Project) => mutate(current => ({ ...current, projects: current.projects.some(x => x.id === row.id) ? current.projects.map(x => x.id === row.id ? { ...row, reportIds: current.reports.filter(report => report.projectId === row.id).map(report => report.id) } : x) : [{ ...row, reportIds: current.reports.filter(report => report.projectId === row.id).map(report => report.id) }, ...current.projects] })), [mutate])
+  const removeProject = useCallback((id: string) => mutate(current => ({ ...current, projects: current.projects.filter(row => row.id !== id), tasks: current.tasks.map(row => row.projectId === id ? { ...row, projectId: '' } : row), learning: current.learning.map(row => row.projectId === id ? { ...row, projectId: '' } : row), reports: current.reports.map(row => row.projectId === id ? { ...row, projectId: '' } : row) })), [mutate])
+  const saveSkill = useCallback((row: Skill) => mutate(current => ({ ...current, skills: current.skills.some(x => x.id === row.id) ? current.skills.map(x => x.id === row.id ? row : x) : [row, ...current.skills] })), [mutate])
+  const saveLearning = useCallback((row: LearningRecord) => mutate(current => ({ ...current, learning: current.learning.some(x => x.id === row.id) ? current.learning.map(x => x.id === row.id ? row : x) : [row, ...current.learning] })), [mutate])
+  const saveLeadership = useCallback((row: LeadershipRecord) => mutate(current => ({ ...current, leadership: current.leadership.map(x => x.id === row.id ? row : x) })), [mutate])
+  const saveReport = useCallback((row: Report) => mutate(current => {
     const reports = current.reports.some(x => x.id === row.id) ? current.reports.map(x => x.id === row.id ? row : x) : [row, ...current.reports]
     return { ...current, reports, projects: current.projects.map(project => ({ ...project, reportIds: reports.filter(report => report.projectId === project.id).map(report => report.id) })) }
-  }), [])
-  const addEvidence = useCallback((row: Evidence) => setData(current => ({ ...current, evidence: [row, ...current.evidence] })), [])
-  const removeEvidence = useCallback((id: string) => setData(current => ({ ...current, evidence: current.evidence.filter(row => row.id !== id), skills: current.skills.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), tasks: current.tasks.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), projects: current.projects.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), learning: current.learning.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), reports: current.reports.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), leadership: current.leadership.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })) })), [])
-  const attachEvidence = useCallback((type: OwnerType, ownerId: string, evidenceId: string) => setData(current => {
+  }), [mutate])
+  const addEvidence = useCallback((row: Evidence) => mutate(current => ({ ...current, evidence: [row, ...current.evidence] })), [mutate])
+  const removeEvidence = useCallback((id: string) => mutate(current => ({ ...current, evidence: current.evidence.filter(row => row.id !== id), skills: current.skills.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), tasks: current.tasks.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), projects: current.projects.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), learning: current.learning.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), reports: current.reports.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })), leadership: current.leadership.map(row => ({ ...row, evidenceIds: row.evidenceIds.filter(x => x !== id) })) })), [mutate])
+  const attachEvidence = useCallback((type: OwnerType, ownerId: string, evidenceId: string) => mutate(current => {
     if (type === 'task') return { ...current, tasks: current.tasks.map(row => row.id === ownerId ? { ...row, evidenceIds: [...new Set([...row.evidenceIds, evidenceId])] } : row) }
     if (type === 'project') return { ...current, projects: current.projects.map(row => row.id === ownerId ? { ...row, evidenceIds: [...new Set([...row.evidenceIds, evidenceId])] } : row) }
     if (type === 'learning') return { ...current, learning: current.learning.map(row => row.id === ownerId ? { ...row, evidenceIds: [...new Set([...row.evidenceIds, evidenceId])] } : row) }
     if (type === 'skill') return { ...current, skills: current.skills.map(row => row.id === ownerId ? { ...row, evidenceIds: [...new Set([...row.evidenceIds, evidenceId])] } : row) }
     if (type === 'leadership') return { ...current, leadership: current.leadership.map(row => row.id === ownerId ? { ...row, evidenceIds: [...new Set([...row.evidenceIds, evidenceId])] } : row) }
     return { ...current, reports: current.reports.map(row => row.id === ownerId ? { ...row, evidenceIds: [...new Set([...row.evidenceIds, evidenceId])] } : row) }
-  }), [])
-  const updateStagePlan = useCallback((id: string, plan: StagePlan) => setData(current => ({ ...current, stagePlans: { ...current.stagePlans, [id]: plan } })), [])
-  const saveProfile = useCallback((profile: ProfessionalProfile) => setData(current => ({ ...current, profile })), [])
+  }), [mutate])
+  const updateStagePlan = useCallback((id: string, plan: StagePlan) => mutate(current => ({ ...current, stagePlans: { ...current.stagePlans, [id]: plan } })), [mutate])
+  const saveProfile = useCallback((profile: ProfessionalProfile) => mutate(current => ({ ...current, profile })), [mutate])
   const retrySync = useCallback(() => setRetryVersion(value => value + 1), [])
 
-  if (!supabaseConfigured) return <BackendSetupScreen />
   if (!authReady) return <BackendLoadingScreen />
-  if (connectionError) return <BackendErrorScreen title="Could not connect to your workspace" message={connectionError} onRetry={() => setConnectionAttempt(value => value + 1)} />
-  if (!user) return <AuthScreen onSignIn={signIn} onSignUp={signUp} />
-  if (workspaceLoadError) return <BackendErrorScreen title="Could not load your workspace" message={workspaceLoadError} onRetry={() => setWorkspaceAttempt(value => value + 1)} onSignOut={signOut} />
-  if (loadedFor !== user.id) return <BackendLoadingScreen message="Loading your workspace…" />
+  if (connectionError) return <BackendErrorScreen title="Could not connect to the portfolio" message={connectionError} onRetry={() => setConnectionAttempt(value => value + 1)} />
+  if (workspaceLoadError) return <BackendErrorScreen title="Could not load the portfolio" message={workspaceLoadError} onRetry={() => setWorkspaceAttempt(value => value + 1)} onSignOut={isAdmin ? signOut : undefined} />
+  if (loadedFor !== identity) return <BackendLoadingScreen message="Loading the portfolio…" />
 
-  const value = { data, user, syncStatus, syncError, retrySync, signOut, setTasks, saveTask, changeTaskStatus, removeTask, saveProject, removeProject, saveSkill, saveLearning, saveLeadership, saveReport, addEvidence, removeEvidence, attachEvidence, updateStagePlan, saveProfile, updateCollection }
+  const value: StoreApi = { data, user, isAdmin, canSignIn: supabaseConfigured, syncStatus, syncError, retrySync, signInWithGoogle, signOut, setTasks, saveTask, changeTaskStatus, removeTask, saveProject, removeProject, saveSkill, saveLearning, saveLeadership, saveReport, addEvidence, removeEvidence, attachEvidence, updateStagePlan, saveProfile, updateCollection }
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
 
