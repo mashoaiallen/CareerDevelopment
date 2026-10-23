@@ -77,12 +77,12 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
     })
     supabase.auth.getSession().then(({ data: result, error }) => {
       if (!active) return
-      if (error) setConnectionError(error.message)
+      if (error) setConnectionError('Could not connect to your workspace. Please try again.')
       setUser(result.session?.user ?? null)
       setAuthReady(true)
-    }).catch(reason => {
+    }).catch(() => {
       if (!active) return
-      setConnectionError(reason instanceof Error ? reason.message : 'Could not connect to Supabase.')
+      setConnectionError('Could not connect to your workspace. Please try again.')
       setAuthReady(true)
     })
     return () => { active = false; subscription.unsubscribe() }
@@ -114,9 +114,9 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       setLoadedFor(user.id)
       setSyncStatus('saved')
     }
-    load().catch(reason => {
+    load().catch(() => {
       if (!active) return
-      setWorkspaceLoadError(reason instanceof Error ? reason.message : 'Could not load this Supabase workspace.')
+      setWorkspaceLoadError('Could not load your workspace. Please try again.')
     })
     return () => { active = false }
   }, [user?.id, workspaceAttempt])
@@ -137,10 +137,10 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       saveQueue.current = saveQueue.current.then(persist, persist)
       saveQueue.current.then(() => {
         if (active) { setSyncStatus('saved'); setSyncError('') }
-      }).catch(reason => {
+      }).catch(() => {
         if (active) {
           setSyncStatus('error')
-          setSyncError(reason instanceof Error ? reason.message : 'Could not save changes to Supabase.')
+          setSyncError('Could not save your latest changes. Please try again.')
         }
       })
     }, 400)
@@ -148,12 +148,12 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
   }, [data, user?.id, loadedFor, retryVersion])
 
   const signIn = useCallback(async (email: string, password: string): Promise<AuthResult> => {
-    if (!supabase) return { error: 'Supabase is not configured.' }
+    if (!supabase) return { error: 'Workspace sign-in is currently unavailable. Please contact the site administrator.' }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     return error ? { error: error.message } : {}
   }, [])
   const signUp = useCallback(async (email: string, password: string): Promise<AuthResult> => {
-    if (!supabase) return { error: 'Supabase is not configured.' }
+    if (!supabase) return { error: 'Workspace sign-up is currently unavailable. Please contact the site administrator.' }
     const { data: result, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } })
     if (error) return { error: error.message }
     if (!result.session) return { message: 'Account created. Check your email to confirm it, then sign in.' }
@@ -203,10 +203,10 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
 
   if (!supabaseConfigured) return <BackendSetupScreen />
   if (!authReady) return <BackendLoadingScreen />
-  if (connectionError) return <BackendErrorScreen title="Could not connect to Supabase" message={connectionError} onRetry={() => setConnectionAttempt(value => value + 1)} />
+  if (connectionError) return <BackendErrorScreen title="Could not connect to your workspace" message={connectionError} onRetry={() => setConnectionAttempt(value => value + 1)} />
   if (!user) return <AuthScreen onSignIn={signIn} onSignUp={signUp} />
   if (workspaceLoadError) return <BackendErrorScreen title="Could not load your workspace" message={workspaceLoadError} onRetry={() => setWorkspaceAttempt(value => value + 1)} onSignOut={signOut} />
-  if (loadedFor !== user.id) return <BackendLoadingScreen message="Loading your Supabase workspace…" />
+  if (loadedFor !== user.id) return <BackendLoadingScreen message="Loading your workspace…" />
 
   const value = { data, user, syncStatus, syncError, retrySync, signOut, setTasks, saveTask, changeTaskStatus, removeTask, saveProject, removeProject, saveSkill, saveLearning, saveLeadership, saveReport, addEvidence, removeEvidence, attachEvidence, updateStagePlan, saveProfile, updateCollection }
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>

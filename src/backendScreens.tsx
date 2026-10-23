@@ -6,11 +6,10 @@ type AuthResult = { error?: string; message?: string }
 export function BackendSetupScreen() {
   return <main className="backend-screen"><section className="backend-card">
     <span className="backend-mark">A<span>·</span></span>
-    <p className="eyebrow">SUPABASE CONNECTION REQUIRED</p>
+    <p className="eyebrow">WORKSPACE NOT CONFIGURED</p>
     <h1>Connect the workspace</h1>
-    <p>For local development, add your Supabase project URL and publishable key to the root <code>.env</code> file, then restart Vite. For Vercel, add those same variables under Project Settings → Environment Variables, then redeploy. Vercel does not receive this local <code>.env</code> file.</p>
-    <pre>VITE_SUPABASE_URL=…<br/>VITE_SUPABASE_PUBLISHABLE_KEY=…</pre>
-    <p className="backend-note">The workspace is not stored in this browser. Apply the SQL migration in <code>supabase/migrations</code> before signing in.</p>
+    <p>This workspace is currently unavailable. Please contact the site administrator.</p>
+    <p className="backend-note">Your workspace data is stored securely and is available after the connection has been restored.</p>
   </section></main>
 }
 
@@ -23,7 +22,7 @@ export function BackendErrorScreen({ title, message, onRetry, onSignOut }: { tit
     <span className="backend-mark">A<span>·</span></span><p className="eyebrow">WORKSPACE CONNECTION</p>
     <h1>{title}</h1><p>{message}</p>
     <div className="backend-actions"><button className="button button-dark" onClick={onRetry}>Try again</button>{onSignOut && <button className="button button-outline" onClick={onSignOut}>Sign out</button>}</div>
-    <p className="backend-note">Check that the Supabase migration is applied and the database and Storage policies are enabled.</p>
+    <p className="backend-note">Check your connection and try again. If the issue continues, contact support.</p>
   </section></main>
 }
 
@@ -49,7 +48,7 @@ export function AuthScreen({ onSignIn, onSignUp }: { onSignIn: (email: string, p
     <span className="backend-mark">A<span>·</span></span>
     <p className="eyebrow">WITS · ELECTRICAL ENGINEERING</p>
     <h1>{mode === 'sign-in' ? 'Sign in to your workspace' : 'Create your workspace account'}</h1>
-    <p className="backend-intro">Your tasks, portfolio records and evidence are stored in your Supabase account.</p>
+    <p className="backend-intro">Your tasks, portfolio records and evidence are stored securely in your private workspace.</p>
     <form className="auth-form" onSubmit={submit}>
       <label>Email address<input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} /></label>
       <label>Password<input type="password" autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'} minLength={6} required value={password} onChange={event => setPassword(event.target.value)} /></label>
