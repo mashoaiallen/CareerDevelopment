@@ -8,7 +8,7 @@ export function BackendSetupScreen() {
     <span className="backend-mark">A<span>·</span></span>
     <p className="eyebrow">SUPABASE CONNECTION REQUIRED</p>
     <h1>Connect the workspace</h1>
-    <p>Add your Supabase project URL and publishable key to the root <code>.env</code> file, then restart the Vite development server or redeploy on Vercel.</p>
+    <p>For local development, add your Supabase project URL and publishable key to the root <code>.env</code> file, then restart Vite. For Vercel, add those same variables under Project Settings → Environment Variables, then redeploy. Vercel does not receive this local <code>.env</code> file.</p>
     <pre>VITE_SUPABASE_URL=…<br/>VITE_SUPABASE_PUBLISHABLE_KEY=…</pre>
     <p className="backend-note">The workspace is not stored in this browser. Apply the SQL migration in <code>supabase/migrations</code> before signing in.</p>
   </section></main>
