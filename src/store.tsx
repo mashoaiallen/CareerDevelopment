@@ -1,24 +1,21 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { PropsWithChildren } from 'react'
+import type { User } from '@supabase/supabase-js'
 import { initialData } from './seeds'
+import { AuthScreen, BackendErrorScreen, BackendLoadingScreen, BackendSetupScreen } from './backendScreens'
+import { supabase, supabaseConfigured } from './supabase'
 import type { Evidence, Project, Report, Skill, Task, WorkspaceData, LearningRecord, LeadershipRecord, OwnerType, ProfessionalProfile, StagePlan } from './model'
 
-const STORE_KEY = 'allen-engineering-workspace-v1'
-
-function readInitial(): WorkspaceData {
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return initialData
-    const saved = JSON.parse(raw) as Partial<WorkspaceData>
-    return { ...initialData, ...saved }
-  } catch {
-    return initialData
-  }
-}
+type SyncStatus = 'loading' | 'saving' | 'saved' | 'error'
+type AuthResult = { error?: string; message?: string }
 
 type StoreApi = {
   data: WorkspaceData
-  storageError: string
+  user: User
+  syncStatus: SyncStatus
+  syncError: string
+  retrySync: () => void
+  signOut: () => Promise<void>
   setTasks: (next: Task[] | ((current: Task[]) => Task[])) => void
   saveTask: (task: Task) => void
   changeTaskStatus: (id: string, status: Task['status']) => void
@@ -39,18 +36,130 @@ type StoreApi = {
 
 const StoreContext = createContext<StoreApi | null>(null)
 
+function mergeWorkspace(value: unknown): WorkspaceData {
+  const saved = value && typeof value === 'object' ? value as Partial<WorkspaceData> : {}
+  return {
+    ...initialData,
+    ...saved,
+    tasks: Array.isArray(saved.tasks) ? saved.tasks : initialData.tasks,
+    projects: Array.isArray(saved.projects) ? saved.projects : initialData.projects,
+    skills: Array.isArray(saved.skills) ? saved.skills : initialData.skills,
+    learning: Array.isArray(saved.learning) ? saved.learning : initialData.learning,
+    leadership: Array.isArray(saved.leadership) ? saved.leadership : initialData.leadership,
+    reports: Array.isArray(saved.reports) ? saved.reports : initialData.reports,
+    evidence: Array.isArray(saved.evidence) ? saved.evidence : initialData.evidence,
+    stagePlans: { ...initialData.stagePlans, ...saved.stagePlans },
+    profile: { ...initialData.profile, ...saved.profile },
+  }
+}
+
 export function WorkspaceProvider({ children }: PropsWithChildren) {
-  const [data, setData] = useState<WorkspaceData>(readInitial)
-  const [storageError, setStorageError] = useState('')
+  const [user, setUser] = useState<User | null>(null)
+  const [authReady, setAuthReady] = useState(false)
+  const [connectionError, setConnectionError] = useState('')
+  const [connectionAttempt, setConnectionAttempt] = useState(0)
+  const [workspaceLoadError, setWorkspaceLoadError] = useState('')
+  const [workspaceAttempt, setWorkspaceAttempt] = useState(0)
+  const [loadedFor, setLoadedFor] = useState<string | null>(null)
+  const [data, setData] = useState<WorkspaceData>(initialData)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('loading')
+  const [syncError, setSyncError] = useState('')
+  const [retryVersion, setRetryVersion] = useState(0)
+  const lastSyncedData = useRef('')
+  const saveQueue = useRef<Promise<void>>(Promise.resolve())
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(data))
-      setStorageError('')
-    } catch {
-      setStorageError('Browser storage is unavailable or full. Export your metadata backup before continuing.')
+    if (!supabase) { setAuthReady(true); return }
+    let active = true
+    setAuthReady(false); setConnectionError('')
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) setUser(session?.user ?? null)
+    })
+    supabase.auth.getSession().then(({ data: result, error }) => {
+      if (!active) return
+      if (error) setConnectionError(error.message)
+      setUser(result.session?.user ?? null)
+      setAuthReady(true)
+    }).catch(reason => {
+      if (!active) return
+      setConnectionError(reason instanceof Error ? reason.message : 'Could not connect to Supabase.')
+      setAuthReady(true)
+    })
+    return () => { active = false; subscription.unsubscribe() }
+  }, [connectionAttempt])
+
+  useEffect(() => {
+    const client = supabase
+    if (!client || !user) { setLoadedFor(null); setWorkspaceLoadError(''); return }
+    let active = true
+    setLoadedFor(null); setWorkspaceLoadError(''); setSyncStatus('loading')
+    const load = async () => {
+      const { data: row, error } = await client.from('workspaces').select('data').eq('user_id', user.id).maybeSingle()
+      if (error) throw error
+      let workspaceData: WorkspaceData
+      if (row) {
+        workspaceData = mergeWorkspace(row.data)
+      } else {
+        workspaceData = initialData
+        const { error: insertError } = await client.from('workspaces').insert({ user_id: user.id, data: workspaceData })
+        if (insertError?.code === '23505') {
+          const { data: racedRow, error: reloadError } = await client.from('workspaces').select('data').eq('user_id', user.id).single()
+          if (reloadError) throw reloadError
+          workspaceData = mergeWorkspace(racedRow.data)
+        } else if (insertError) throw insertError
+      }
+      if (!active) return
+      setData(workspaceData)
+      lastSyncedData.current = JSON.stringify(workspaceData)
+      setLoadedFor(user.id)
+      setSyncStatus('saved')
     }
-  }, [data])
+    load().catch(reason => {
+      if (!active) return
+      setWorkspaceLoadError(reason instanceof Error ? reason.message : 'Could not load this Supabase workspace.')
+    })
+    return () => { active = false }
+  }, [user?.id, workspaceAttempt])
+
+  useEffect(() => {
+    const client = supabase
+    if (!client || !user || loadedFor !== user.id) return
+    const snapshot = JSON.stringify(data)
+    if (snapshot === lastSyncedData.current) { setSyncStatus('saved'); return }
+    let active = true
+    setSyncStatus('saving'); setSyncError('')
+    const timer = window.setTimeout(() => {
+      const persist = async () => {
+        const { error } = await client.from('workspaces').upsert({ user_id: user.id, data: JSON.parse(snapshot), updated_at: new Date().toISOString() })
+        if (error) throw error
+        lastSyncedData.current = snapshot
+      }
+      saveQueue.current = saveQueue.current.then(persist, persist)
+      saveQueue.current.then(() => {
+        if (active) { setSyncStatus('saved'); setSyncError('') }
+      }).catch(reason => {
+        if (active) {
+          setSyncStatus('error')
+          setSyncError(reason instanceof Error ? reason.message : 'Could not save changes to Supabase.')
+        }
+      })
+    }, 400)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [data, user?.id, loadedFor, retryVersion])
+
+  const signIn = useCallback(async (email: string, password: string): Promise<AuthResult> => {
+    if (!supabase) return { error: 'Supabase is not configured.' }
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    return error ? { error: error.message } : {}
+  }, [])
+  const signUp = useCallback(async (email: string, password: string): Promise<AuthResult> => {
+    if (!supabase) return { error: 'Supabase is not configured.' }
+    const { data: result, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } })
+    if (error) return { error: error.message }
+    if (!result.session) return { message: 'Account created. Check your email to confirm it, then sign in.' }
+    return { message: 'Account created. Connecting to your workspace…' }
+  }, [])
+  const signOut = useCallback(async () => { if (supabase) await supabase.auth.signOut() }, [])
 
   const updateCollection = useCallback<StoreApi['updateCollection']>((key, rows) => {
     setData(current => ({ ...current, [key]: rows }))
@@ -90,13 +199,22 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
   }), [])
   const updateStagePlan = useCallback((id: string, plan: StagePlan) => setData(current => ({ ...current, stagePlans: { ...current.stagePlans, [id]: plan } })), [])
   const saveProfile = useCallback((profile: ProfessionalProfile) => setData(current => ({ ...current, profile })), [])
-  const value = useMemo(() => ({ data, storageError, setTasks, saveTask, changeTaskStatus, removeTask, saveProject, removeProject, saveSkill, saveLearning, saveLeadership, saveReport, addEvidence, removeEvidence, attachEvidence, updateStagePlan, saveProfile, updateCollection }), [data, storageError, setTasks, saveTask, changeTaskStatus, removeTask, saveProject, removeProject, saveSkill, saveLearning, saveLeadership, saveReport, addEvidence, removeEvidence, attachEvidence, updateStagePlan, saveProfile, updateCollection])
+  const retrySync = useCallback(() => setRetryVersion(value => value + 1), [])
+
+  if (!supabaseConfigured) return <BackendSetupScreen />
+  if (!authReady) return <BackendLoadingScreen />
+  if (connectionError) return <BackendErrorScreen title="Could not connect to Supabase" message={connectionError} onRetry={() => setConnectionAttempt(value => value + 1)} />
+  if (!user) return <AuthScreen onSignIn={signIn} onSignUp={signUp} />
+  if (workspaceLoadError) return <BackendErrorScreen title="Could not load your workspace" message={workspaceLoadError} onRetry={() => setWorkspaceAttempt(value => value + 1)} onSignOut={signOut} />
+  if (loadedFor !== user.id) return <BackendLoadingScreen message="Loading your Supabase workspace…" />
+
+  const value = { data, user, syncStatus, syncError, retrySync, signOut, setTasks, saveTask, changeTaskStatus, removeTask, saveProject, removeProject, saveSkill, saveLearning, saveLeadership, saveReport, addEvidence, removeEvidence, attachEvidence, updateStagePlan, saveProfile, updateCollection }
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
 
 export function useWorkspace() {
   const value = useContext(StoreContext)
-  if (!value) throw new Error('useWorkspace must be used inside WorkspaceProvider')
+  if (!value) throw new Error('useWorkspace must be used inside a loaded WorkspaceProvider')
   return value
 }
 

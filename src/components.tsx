@@ -4,7 +4,7 @@ import type { PropsWithChildren, ReactNode } from 'react'
 import type { Evidence, OwnerType, Project, Task } from './model'
 import { blankTask } from './model'
 import { localStamp, useWorkspace } from './store'
-import { deleteFile, getFile, storeFile } from './fileStore'
+import { deleteFile, getFileUrl, storeFile } from './fileStore'
 
 export const navItems = [
   { to: '/', label: 'Home', icon: 'overview', end: true },
@@ -69,7 +69,7 @@ export function Panel({ children, className = '' }: PropsWithChildren<{ classNam
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { data, storageError } = useWorkspace()
+  const { data, user, syncStatus, syncError, retrySync, signOut } = useWorkspace()
   const unfinished = data.tasks.filter(task => task.status !== 'Completed').length
   return <div className="app-frame">
     <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
@@ -80,14 +80,14 @@ export function AppShell() {
       </nav>
       <div className="sidebar-spacer" />
       <Link to="/work" className="work-shortcut" onClick={() => setMobileOpen(false)}><span className="shortcut-icon"><Icon name="check" /></span><span><strong>My work</strong><small>{unfinished} outstanding</small></span><Icon name="arrow" size={15} /></Link>
-      <div className="sidebar-profile"><span className="avatar">A</span><span><strong>Allen</strong><small>Electrical Engineering · Wits</small></span><span className="profile-dot" title="Local workspace" /></div>
+      <div className="sidebar-profile"><span className="avatar">A</span><span><strong>{data.profile.name}</strong><small>{user.email || 'Supabase account'}</small></span><span className="profile-dot" title="Supabase workspace" /></div>
     </aside>
     {mobileOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
     <div className="main-shell">
-      <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(value => !value)}><Icon name="menu" /></button><div className="breadcrumbs"><span>Workspace</span><span className="crumb-sep">/</span><span className="crumb-current">Engineering development</span></div><div className="topbar-right"><span className="save-indicator"><i /> Saved in this browser</span><span className="topbar-avatar">A</span></div></header>
-      {storageError && <div className="storage-warning" role="alert">{storageError}</div>}
+      <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(value => !value)}><Icon name="menu" /></button><div className="breadcrumbs"><span>Workspace</span><span className="crumb-sep">/</span><span className="crumb-current">Engineering development</span></div><div className="topbar-right"><span className={`save-indicator sync-${syncStatus}`}><i />{syncStatus === 'saving' ? 'Saving to Supabase…' : syncStatus === 'error' ? 'Sync error' : 'Synced to Supabase'}</span>{syncStatus === 'error' && <button className="sync-retry" onClick={retrySync}>Retry</button>}<button className="signout-button" onClick={() => void signOut()}>Sign out</button></div></header>
+      {syncError && <div className="storage-warning" role="alert">Could not sync your latest changes: {syncError}. <button onClick={retrySync}>Retry sync</button></div>}
       <main className="page-content"><Outlet /></main>
-      <footer className="app-footer"><span>Allen · Electrical Engineering · Wits University</span><span>Local workspace · <Link to="/about">Storage & privacy</Link></span></footer>
+      <footer className="app-footer"><span>Allen · Electrical Engineering · Wits University</span><span>Supabase workspace · <Link to="/about">Storage & privacy</Link></span></footer>
     </div>
   </div>
 }
@@ -189,7 +189,7 @@ function TaskDialog({ task, projects, onClose, creating = false }: { task: Task;
       <div className="detail-grid"><Detail label="Why this matters" value={task.why || 'Not added yet.'} wide /><Detail label="Description" value={task.description || 'Not added yet.'} /><Detail label="Definition of done" value={task.doneDefinition || 'Not added yet.'} /><Detail label="Discipline" value={task.discipline || 'Not set'} /><Detail label="Career stage" value={task.stageId || 'Not linked'} /><Detail label="Planned start" value={dateTime(task.plannedStart, task.plannedStartTime)} /><Detail label="Planned completion" value={dateTime(task.targetDate, task.targetTime)} /><Detail label="Actual start" value={dateTime(task.actualStart, task.actualStartTime)} /><Detail label="Actual completion" value={dateTime(task.actualCompletion, task.actualCompletionTime)} /><Detail label="Related technical skills" value={task.skillIds.map(id=>data.skills.find(skill=>skill.id===id)?.name).filter(Boolean).join(', ')||'No skills linked'} /><Detail label="Dependencies" value={task.dependencies.map(id=>data.tasks.find(item=>item.id===id)?.title).filter(Boolean).join(', ')||'No dependencies'} /><Detail label="Notes" value={task.notes || 'No notes recorded.'} wide /></div>
       {task.statusHistory.length > 0 && <div className="history-block"><h3>Status history</h3>{task.statusHistory.map((entry, index) => <div key={index}><StatusBadge status={entry.status} /><span>{dateTime(entry.date, entry.time)}</span></div>)}</div>}
       <EvidenceManager ownerType="task" ownerId={task.id} evidenceIds={task.evidenceIds} />
-      <div className="dialog-footer spread"><span className="muted-note">Changes are stored in this browser.</span><button className="text-action danger-text" onClick={doDelete}>Delete task</button></div>
+      <div className="dialog-footer spread"><span className="muted-note">Changes sync to your Supabase workspace.</span><button className="text-action danger-text" onClick={doDelete}>Delete task</button></div>
     </>}
     {editing && <form onSubmit={submit} className="record-form">
       <div className="form-grid"><Field label="Task title *"><input className={inputClass} required value={draft.title} onChange={event => set('title', event.target.value)} /></Field><Field label="Discipline"><input className={inputClass} value={draft.discipline} onChange={event => set('discipline', event.target.value)} list="disciplines"/><datalist id="disciplines"><option>Control Engineering</option><option>Electrical Engineering</option><option>Embedded Systems</option><option>Instrumentation</option><option>Engineering Delivery</option></datalist></Field>
@@ -209,7 +209,7 @@ function Detail({ label, value, wide = false }: { label: string; value: string; 
 }
 
 export function EvidenceManager({ ownerType, ownerId, evidenceIds }: { ownerType: OwnerType; ownerId: string; evidenceIds: string[] }) {
-  const { data, addEvidence, attachEvidence, removeEvidence } = useWorkspace()
+  const { data, user, addEvidence, attachEvidence, removeEvidence } = useWorkspace()
   const [uploadOpen, setUploadOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -224,25 +224,26 @@ export function EvidenceManager({ ownerType, ownerId, evidenceIds }: { ownerType
     const input = event.currentTarget.elements.namedItem('evidence-file') as HTMLInputElement
     const file = input.files?.[0]
     if (!file) { setError('Choose a file to attach.'); return }
-    if (file.size > 20 * 1024 * 1024) { setError('This file is larger than the 20 MB local upload limit.'); return }
+    if (file.size > 20 * 1024 * 1024) { setError('This file is larger than the 20 MB upload limit.'); return }
     const allowed = /\.(png|jpe?g|webp|gif|svg|pdf|docx?|xlsx?|csv|txt|md|m|mat|slx|c|h|cpp|ino|zip|pptx)$/i.test(file.name)
     if (!allowed) { setError('This file type is not supported. Choose an image, report, data file, or source file.'); return }
     setBusy(true)
     try {
       const id = crypto.randomUUID()
-      await storeFile(id, file)
-      const row: Evidence = { id, title: title.trim() || file.name, description: description.trim(), date, category, ownerType, ownerId, filename: file.name, mimeType: file.type || mimeGuess(file.name), size: file.size, storageKey: id }
+      const storageKey = `${user.id}/${id}`
+      await storeFile(storageKey, file)
+      const row: Evidence = { id, title: title.trim() || file.name, description: description.trim(), date, category, ownerType, ownerId, filename: file.name, mimeType: file.type || mimeGuess(file.name), size: file.size, storageKey }
       addEvidence(row); attachEvidence(ownerType, ownerId, id); setUploadOpen(false); setTitle(''); setDescription(''); setDate('')
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not store this file in the browser.') }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not upload this file to Supabase Storage.') }
     finally { setBusy(false) }
   }
   const remove = async (item: Evidence) => {
-    if (!window.confirm(`Remove “${item.title}” and its local file?`)) return
-    try { await deleteFile(item.storageKey); removeEvidence(item.id) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not remove this file.') }
+    if (!window.confirm(`Remove “${item.title}” and its Supabase Storage file?`)) return
+    try { await deleteFile(item.storageKey); removeEvidence(item.id) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not remove this file from Supabase Storage.') }
   }
   return <section className="evidence-section"><div className="section-title"><div><h3>Technical evidence</h3><p>Attach real work and supporting files to this record.</p></div><button className="button button-outline button-small" onClick={() => setUploadOpen(value => !value)}><Icon name="upload" size={15} /> Add evidence</button></div>
     {evidence.length ? <div className="evidence-grid">{evidence.map(item => <EvidenceCard key={item.id} item={item} onRemove={() => remove(item)} />)}</div> : <div className="evidence-empty">No evidence attached yet.</div>}
-    {uploadOpen && <form className="evidence-upload" onSubmit={upload}><div className="form-grid"><Field label="Choose file *"><input className={inputClass} name="evidence-file" type="file" accept={accept} required /></Field><Field label="Evidence title"><input className={inputClass} value={title} onChange={event => setTitle(event.target.value)} placeholder="Defaults to the filename" /></Field><Field label="Category"><select className={inputClass} value={category} onChange={event => setCategory(event.target.value)}><option>Technical calculation</option><option>MATLAB / Simulink</option><option>Hardware photograph</option><option>Test result</option><option>Circuit diagram</option><option>Technical report</option><option>Source code</option><option>Reference</option><option>Other</option></select></Field><Field label="Evidence date"><input type="date" className={inputClass} value={date} onChange={event => setDate(event.target.value)} /></Field><Field label="Description"><textarea className={inputClass} rows={2} value={description} onChange={event => setDescription(event.target.value)} placeholder="What does this file show?" /></Field></div><p className="form-hint">Files are stored in this browser profile, up to 20 MB each. They are not uploaded to a server.</p>{error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-footer"><button type="button" className="button button-outline button-small" onClick={() => setUploadOpen(false)}>Cancel</button><button className="button button-dark button-small" disabled={busy}>{busy ? 'Saving file…' : 'Attach evidence'}</button></div></form>}
+    {uploadOpen && <form className="evidence-upload" onSubmit={upload}><div className="form-grid"><Field label="Choose file *"><input className={inputClass} name="evidence-file" type="file" accept={accept} required /></Field><Field label="Evidence title"><input className={inputClass} value={title} onChange={event => setTitle(event.target.value)} placeholder="Defaults to the filename" /></Field><Field label="Category"><select className={inputClass} value={category} onChange={event => setCategory(event.target.value)}><option>Technical calculation</option><option>MATLAB / Simulink</option><option>Hardware photograph</option><option>Test result</option><option>Circuit diagram</option><option>Technical report</option><option>Source code</option><option>Reference</option><option>Other</option></select></Field><Field label="Evidence date"><input type="date" className={inputClass} value={date} onChange={event => setDate(event.target.value)} /></Field><Field label="Description"><textarea className={inputClass} rows={2} value={description} onChange={event => setDescription(event.target.value)} placeholder="What does this file show?" /></Field></div><p className="form-hint">Files upload to your private Supabase Storage bucket, up to 20 MB each. Signed links expire after ten minutes.</p>{error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-footer"><button type="button" className="button button-outline button-small" onClick={() => setUploadOpen(false)}>Cancel</button><button className="button button-dark button-small" disabled={busy}>{busy ? 'Uploading…' : 'Attach evidence'}</button></div></form>}
   </section>
 }
 
@@ -256,13 +257,12 @@ function EvidenceCard({ item, onRemove }: { item: Evidence; onRemove: () => void
   const [missing, setMissing] = useState(false)
   useEffect(() => {
     let active = true
-    let objectUrl = ''
-    getFile(item.storageKey).then(blob => { if (!active) return; if (!blob) { setMissing(true); return } objectUrl = URL.createObjectURL(blob); setUrl(objectUrl) }).catch(() => { if (active) setMissing(true) })
-    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl) }
+    getFileUrl(item.storageKey).then(signedUrl => { if (!active) return; setUrl(signedUrl) }).catch(() => { if (active) setMissing(true) })
+    return () => { active = false }
   }, [item.storageKey])
   const isImage = item.mimeType.startsWith('image/')
   const size = item.size > 1024 * 1024 ? `${(item.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(item.size / 1024))} KB`
-  return <article className="evidence-card">{isImage && url ? <a href={url} target="_blank" rel="noreferrer" className="evidence-preview"><img src={url} alt={item.description || item.title} /></a> : <div className="file-icon">{item.filename.split('.').pop()?.toUpperCase().slice(0, 5) || 'FILE'}</div>}<div className="evidence-card-info"><strong>{item.title}</strong><span>{item.category}{item.date ? ` · ${formatDate(item.date)}` : ''} · {size}</span>{item.description && <p>{item.description}</p>}{missing ? <span className="form-error">Local file missing</span> : url ? <a className="text-link" href={url} download={item.filename}>Open / download <Icon name="arrow" size={13}/></a> : <span className="muted-note">Loading local file…</span>}</div><button className="icon-button tiny-icon danger-text" onClick={onRemove} aria-label={`Remove ${item.title}`}><Icon name="close" size={15}/></button></article>
+  return <article className="evidence-card">{isImage && url ? <a href={url} target="_blank" rel="noreferrer" className="evidence-preview"><img src={url} alt={item.description || item.title} /></a> : <div className="file-icon">{item.filename.split('.').pop()?.toUpperCase().slice(0, 5) || 'FILE'}</div>}<div className="evidence-card-info"><strong>{item.title}</strong><span>{item.category}{item.date ? ` · ${formatDate(item.date)}` : ''} · {size}</span>{item.description && <p>{item.description}</p>}{missing ? <span className="form-error">File unavailable. Check your Supabase Storage setup.</span> : url ? <a className="text-link" href={url} download={item.filename}>Open / download <Icon name="arrow" size={13}/></a> : <span className="muted-note">Loading file from Supabase…</span>}</div><button className="icon-button tiny-icon danger-text" onClick={onRemove} aria-label={`Remove ${item.title}`}><Icon name="close" size={15}/></button></article>
 }
 
 export function SectionCallout({ children, tone = 'sage' }: PropsWithChildren<{ tone?: 'sage'|'amber'|'blue' }>) {
