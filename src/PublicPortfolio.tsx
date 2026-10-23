@@ -1,4 +1,5 @@
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import type { ReactNode } from 'react'
 
 const publicNav = [
   { to: '/public', label: 'Overview', end: true },
@@ -37,7 +38,7 @@ export function PublicEntry() {
   return <PublicLayout><PublicHome /></PublicLayout>
 }
 
-export function PublicLayout({ children }: { children?: React.ReactNode }) {
+export function PublicLayout({ children }: { children?: ReactNode }) {
   const location = useLocation()
   const isHome = location.pathname === '/public'
   return <div className="public-site">
@@ -55,7 +56,7 @@ export function PublicLayout({ children }: { children?: React.ReactNode }) {
   </div>
 }
 
-function PublicHome() {
+export function PublicOverview() {
   return <>
     <section className="public-hero">
       <div className="public-hero-copy">
